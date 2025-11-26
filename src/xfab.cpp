@@ -10,6 +10,8 @@
 #include "globals.hpp"
 #include "debug_print.hpp"
 #include "convert_compress.hpp"
+#include "convert_png.hpp"
+#include "compiler_error.hpp"
 
 using json = nlohmann::json;
 
@@ -17,6 +19,8 @@ struct xfab_t
 {
     struct chr_t
     {
+        unsigned offset;
+        std::vector<unsigned> indices;
         std::string name;
         fs::path path;
     };
@@ -49,6 +53,7 @@ struct xfab_t
         unsigned w;
         unsigned h;
 
+        std::vector<std::uint32_t> tiles_raw;
         std::vector<std::uint16_t> tiles;
         std::vector<std::uint8_t> collisions;
 
@@ -70,7 +75,7 @@ struct xfab_t
 
     unsigned metatile_size;
     unsigned collision_scale() const { return std::max<unsigned>(metatile_size, 1); }
-    std::vector<chr_t> chrs;
+    std::map<unsigned, chr_t> chrs;
     std::vector<palette_t> palettes;
     fc::vector_map<std::string, object_class_t> ocs;
     std::vector<level_t> levels;
@@ -111,6 +116,15 @@ void xfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs::
         return (lo & 0xFF) | ((hi & 0xFF) << 8);
     };
 
+    auto const get32 = [&]() -> std::uint32_t
+    {
+        std::uint8_t a = get8();
+        std::uint8_t b = get8();
+        std::uint8_t c = get8();
+        std::uint8_t d = get8();
+        return std::uint32_t(a) | (std::uint32_t(b) << 8) | (std::uint32_t(c) << 16) | (std::uint32_t(d) << 24);
+    };
+
     auto const get_str = [&]() -> std::string
     {
         std::string ret;
@@ -148,15 +162,17 @@ void xfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs::
 
     // CHR:
     unsigned const num_chr = get8(true);
-    chrs.reserve(num_chr);
+    dprint(log, "8X8FAB_NUM_CHR", num_chr);
     for(unsigned i = 0; i < num_chr; ++i)
     {
+        dprint(log, "8X8FAB_CHR_I", i);
         chr_t chr = {};
+        unsigned id = get16();
         chr.name = get_str();
         chr.path = convert_path(get_str());
 
         dprint(log, "8X8FAB_CHR", chr.name, chr.path);
-        chrs.push_back(std::move(chr));
+        chrs.emplace(id, std::move(chr));
     }
 
     // Palettes:
@@ -207,9 +223,9 @@ void xfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs::
         level.w = get16();
         level.h = get16();
 
-        level.tiles.resize(level.w * level.h);
-        for(std::uint16_t& data : level.tiles)
-            data = get16();
+        level.tiles_raw.resize(level.w * level.h);
+        for(std::uint32_t& data : level.tiles_raw)
+            data = get32();
 
         level.collisions.resize((level.w / collision_scale()) * (level.h / collision_scale()));
         for(std::uint8_t& data : level.collisions)
@@ -494,6 +510,47 @@ void convert_xfab(xfab_convert_type_t ct, std::uint8_t const* const begin, std::
     else
         xfab.load_binary(begin, size, xfab_path);
 
+    // CHR:
+    for(auto& pair : xfab.chrs)
+    {
+        try
+        {
+            auto data = read_binary_file(pair.second.path.string(), at);
+            png_to_chr(data.data(), data.size(), false, &pair.second.indices);
+        }
+        catch(convert_error_t const& error)
+        {
+            compiler_error(at, fmt("In file \"%\": %", pair.second.path.string(), error.what()));
+        }
+        catch(...)
+        {
+            throw;
+        }
+    }
+
+    unsigned offset = 0;
+    for(auto& pair : xfab.chrs)
+    {
+        pair.second.offset = offset;
+        if(pair.second.indices.size())
+            offset += pair.second.indices.back() + 1;
+    }
+
+    for(auto& level : xfab.levels)
+    {
+        // Remap the raw_tiles into level-specific tiles.
+        level.tiles.resize(level.tiles_raw.size());
+        for(unsigned i = 0; i < level.tiles_raw.size(); i += 1)
+        {
+            unsigned chr = level.tiles_raw[i] >> 16;
+            unsigned index = level.tiles_raw[i] & 0x3FFF;
+            unsigned attr = level.tiles_raw[i] & 0xC000;
+            auto it = xfab.chrs.find(chr);
+            if(it != xfab.chrs.end() && index < it->second.indices.size())
+                level.tiles[i] = (it->second.indices[index] + it->second.offset) | attr;
+        }
+    }
+
     xfab.compute_mt();
 
     // CHR:
@@ -513,6 +570,7 @@ void convert_xfab(xfab_convert_type_t ct, std::uint8_t const* const begin, std::
         macro_invocation_t m = { macros.chr };
         m.args.push_back(chr.name); // Name
         m.args.push_back(chr.path.string()); // File
+        m.args.push_back(std::to_string(chr.offset * 16)); // Offset
         invoke_macro(std::move(m), std::move(private_globals), std::move(private_groups));
     }
 

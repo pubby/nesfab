@@ -84,8 +84,8 @@ void parser_t<P>::maybe_parse_block(int parent_indent, Func func)
         if(indent != block_indent)
         {
             if(indent > block_indent)
-                compiler_error("Unexpected indentation.");
-            compiler_error("Unexpected deindentation.");
+                compiler_error(fmt("Unexpected indentation. (% vs %)", indent, block_indent));
+            compiler_error(fmt("Unexpected deindentation. (% vs %)", indent, block_indent));
         }
         if(!LOOP_TEST(func))
             break;
@@ -169,27 +169,39 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent, bool eol)
 
             case TOK_subalign:
                 {
+                    ast_node_t expr = { token };
                     parse_token();
 
                     if(mods->subalign)
                         compiler_error("Multiple subalign modifiers.");
 
-                    ast_node_t expr = parse_expr();
+                    parse_token(TOK_lparen);
+                    if(token.type == TOK_rparen)
+                        expr.token.type = TOK_default;
+                    else
+                        expr = parse_expr();
+                    parse_token(TOK_rparen);
+
                     mods->subalign = policy().convert_eternal_expr(&expr, IDEP_TYPE);
-                    parse_token();
                 }
                 break;
 
             case TOK_subsegment:
                 {
+                    ast_node_t expr = { token };
                     parse_token();
 
                     if(mods->subsegment)
                         compiler_error("Multiple subsegment modifiers.");
 
-                    ast_node_t expr = parse_expr();
+                    parse_token(TOK_lparen);
+                    if(token.type == TOK_rparen)
+                        expr.token.type = TOK_default;
+                    else
+                        expr = parse_expr();
+                    parse_token(TOK_rparen);
+
                     mods->subsegment = policy().convert_eternal_expr(&expr, IDEP_TYPE);
-                    parse_token();
                 }
                 break;
 
@@ -731,7 +743,6 @@ std::uint16_t parser_t<P>::parse_hw_reg()
 template<typename P>
 int parser_t<P>::parse_anonymous_label()
 {
-    pstring_t at = token.pstring;
     parse_token(TOK_label);
 
     bool negative = false;
@@ -2002,9 +2013,11 @@ void parser_t<P>::parse_chrrom()
     });
 
     global_t* g = global_t::new_chrrom(decl, global);
+    policy().begin_byte_block_scope();
     policy().begin_chrrom();
     ast_node_t ast = parse_byte_block(decl, chrrom_indent, *g, {}, false, false, true);
     policy().end_chrrom(g, decl, ast, std::move(mods), expr_ptr);
+    policy().end_byte_block_scope(true);
 }
 
 template<typename P>
@@ -2230,11 +2243,56 @@ void parser_t<P>::parse_const()
 
     int const const_indent = indent;
 
+    if(token.type == TOK_ident)
+    {
+        lpstring_t ident;
+        ast_node_t index;
+        ast_node_t value;
+        bool is16 = false;
+
+        std::unique_ptr<mods_t> mods = parse_mods_after([&]
+        {
+            ident = parse_ident_l();
+
+            if(token.type == TOK_lbracket)
+            {
+                parse_token();
+                index = parse_expr();
+                parse_token(TOK_rbracket);
+            }
+            else if(token.type == TOK_lbrace)
+            {
+                parse_token();
+                index = parse_expr();
+                parse_token(TOK_rbrace);
+                is16 = true;
+            }
+            else
+                compiler_error("Expecting '[' or '{' for deferred ct assignment.");
+
+            parse_token(TOK_assign);
+            value = parse_expr();
+        });
+
+        policy().global_const_assign_defer(ident, index, value, is16, std::move(mods));
+        return;
+    }
+
     policy().begin_global_var();
 
     unsigned const line = line_number;
     if(!parse_var_init(var_decl, expr, nullptr, &global, {}, false, true))
+    {
+        if(var_decl.src_type.type.name() == TYPE_TEA)
+        {
+            // TEAs can have their assignment split up into several chunks.
+            policy().global_const_declare_defer(var_decl, line, parse_mods(const_indent));
+            policy().end_global_var();
+            return;
+        }
+
         compiler_error(var_decl.name, "Constants must be assigned a value.");
+    }
 
     if(var_decl.src_type.type.name() == TYPE_PAA)
         compiler_error(var_decl.name, "Pointer-addressable arrays cannot be defined at top-level.");

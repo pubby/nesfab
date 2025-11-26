@@ -1,0 +1,49 @@
+/*
+ * Copyright (c) 2025, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Code for interacting with DPCM.
+
+// Flags:
+ct U DPCM_IRQ      = %10000000
+ct U DPCM_LOOP     = %01000000
+ct U DPCM_MAX_RATE = %00001111
+
+// Returns the address byte of the sample, for use with the $4012 register.
+fn dpcm_addr(AA sample) U
+: +inline
+    return U((UU(sample) - $C000) >> 6)
+
+// Returns the address byte of the sample, for use with the $4012 register.
+fn dpcm_size(UU size) U
+: +inline
+    return U((size - 1) >> 4)
+
+// Prepares a DPCM sample:
+fn dpcm_load(AA sample, UU length, U flags_and_speed)
+: +inline
+    {$4010}(flags_and_speed)
+    {$4012}(dpcm_addr(sample))
+    {$4013}(dpcm_size(length))
+    {$4011}(64)
+
+// Plays a DPCM sample.
+// 'flags' enables the other APU channels.
+fn dpcm_play(U flags)
+: +inline
+    {$4015}(flags | %10000)
+
+// This version starts the sample 3 times, 
+// It is only useful when using DMC IRQ; it prevents a bug that causes IRQ to be fired immediately.
+// 'flags' enables the other APU channels.
+asm fn dpcm_play_thrice(U flags)
+: employs
+    default
+        lda &flags
+        ora #%10000
+        sta $4015
+        sta $4015
+        sta $4015
+        rts

@@ -569,14 +569,6 @@ int main(int argc, char** argv)
                 throw std::runtime_error(fmt("Unable to write Mesen label file %", compiler_options().raw_mlb));
         }
 
-        FILE* ctags_out = nullptr;
-        if(!compiler_options().raw_ctags.empty())
-        {
-            ctags_out = std::fopen(compiler_options().raw_ctags.c_str(), "wb");
-            if(!ctags_out)
-                throw std::runtime_error(fmt("Unable to write Ctags file %", compiler_options().raw_ctags));
-        }
-
         output_time("init:     ");
 
         set_compiler_phase(PHASE_PARSE_MACROS);
@@ -744,6 +736,14 @@ int main(int argc, char** argv)
 
         if(mlb_out)
             print_mlb(mlb_out);
+
+        FILE* ctags_out = nullptr;
+        if(!compiler_options().raw_ctags.empty())
+        {
+            ctags_out = std::fopen(compiler_options().raw_ctags.c_str(), "wb");
+            if(!ctags_out)
+                throw std::runtime_error(fmt("Unable to write Ctags file %", compiler_options().raw_ctags));
+        }
 
         if(ctags_out)
         {

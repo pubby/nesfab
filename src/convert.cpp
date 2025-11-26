@@ -8,6 +8,7 @@
 #include "convert_compress.hpp"
 #include "convert_png.hpp"
 #include "convert_map.hpp"
+#include "convert_wav.hpp"
 #include "ext_lex_tables.hpp"
 #include "mods.hpp"
 #include "globals.hpp"
@@ -94,11 +95,12 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
 {
     using namespace std::literals;
 
+    fs::path path;
+    if(!resource_path(preferred_dir, fs::path(filename.string), path))
+        compiler_error(filename.pstring, fmt("Missing file: %", filename.string));
+
     try
     {
-        fs::path path;
-        if(!resource_path(preferred_dir, fs::path(filename.string), path))
-            compiler_error(filename.pstring, fmt("Missing file: %", filename.string));
 
         std::string_view const view = script.view(source);
         conversion_t ret;
@@ -145,6 +147,11 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
                 case ext_lex::TOK_pal:
                     if(spr16)
                         vec = convert_spr16(vec);
+                    break;
+
+                case ext_lex::TOK_wav:
+                case ext_lex::TOK_aiff:
+                    vec = wav_to_dpcm(vec, 15);
                     break;
 
                 default:
@@ -220,7 +227,7 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
     }
     catch(convert_error_t const& error)
     {
-        compiler_error(filename.pstring, error.what());
+        compiler_error(filename.pstring, fmt("In file \"%\": %", path.string(), error.what()));
     }
     catch(...)
     {

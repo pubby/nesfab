@@ -50,6 +50,9 @@ unsigned ast_node_t::num_children() const
         return 2;
 
     case TOK_write:
+    case TOK_ct_deferred_null:
+    case TOK_ct_deferred_8:
+    case TOK_ct_deferred_16:
         return 3;
 
     default:
@@ -85,4 +88,18 @@ void ast_node_t::weaken_idents()
     unsigned const n = num_children();
     for(unsigned i = 0; i < n; ++i)
         children[i].weaken_idents();
+}
+
+bool ast_node_t::is_deferred() const
+{
+    using namespace lex;
+
+    switch(token.type)
+    {
+    case TOK_ct_deferred_null:
+    case TOK_ct_deferred_8:
+    case TOK_ct_deferred_16:
+        return true;
+    }
+    return false;
 }

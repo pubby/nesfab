@@ -119,9 +119,9 @@ void asm_graph_t::append_code(asm_inst_t const* begin, asm_inst_t const* end,
             {
                 assert(switch_tables);
                 assert(!dumb);
-                passert(node.cfg, to_string(inst.op));
 
                 cfg_ht const cfg = inst.arg.cfg_node();
+                passert(cfg, to_string(inst.op));
 
                 switch_table_t const* switch_table = switch_tables->mapped(cfg);
                 passert(switch_table, cfg, switch_tables->size());
@@ -1103,6 +1103,8 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
 
     if(is_fn)
     {
+        assert(inst.op != ASM_FN_SET_CALL);
+
         fn_ht const call_h = inst.arg.fn();
         fn_t const& call = *call_h;
 
@@ -1110,10 +1112,12 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
         {
             unsigned const i = &loc - map.begin();
 
-            if(has_fn(loc.lclass()) && loc.fn() == call_h)
-                rw(i, loc.lclass() == LOC_ARG, loc.lclass() == LOC_RETURN);
-
-            if(loc.lclass() == LOC_GMEMBER)
+            if(has_fn(loc.lclass()))
+            {
+                if(loc.fn() == call_h)
+                    rw(i, is_arg(loc.lclass()), is_ret(loc.lclass()));
+            }
+            else if(loc.lclass() == LOC_GMEMBER)
             {
                 if(call.fclass == FN_MODE)
                 {
@@ -1140,16 +1144,17 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
                 {
                     if(loc.fn() == call_h)
                     {
-                        rw(i, loc.lclass() == LOC_ARG, loc.lclass() == LOC_RETURN);
+                        rw(i, is_arg(loc.lclass()), is_ret(loc.lclass()));
                         break;
                     }
                 }
             }
-
-            if(has_fn_set(loc.lclass()) && loc.fn_set() == set_h)
-                rw(i, loc.lclass() == LOC_PTR_ARG, loc.lclass() == LOC_PTR_RETURN);
-
-            if(loc.lclass() == LOC_GMEMBER)
+            else if(has_fn_set(loc.lclass()))
+            {
+                if(loc.fn_set() == set_h)
+                    rw(i, is_arg(loc.lclass()), is_ret(loc.lclass()));
+            }
+            else if(loc.lclass() == LOC_GMEMBER)
             {
                 bool r = false;
                 bool w = false;
@@ -1159,11 +1164,11 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
                     if(call_h->fclass == FN_MODE)
                     {
                         group_vars_ht gv = loc.gmember()->gvar.group_vars;
-                        r |= gv && call_h->mode_group_vars().test(gv.id);
+                        r |= !gv || call_h->mode_group_vars().test(gv.id);
                     }
                     else
                     {
-                        r |= call_h->ir_reads().test(loc.gmember().id);
+                        r |= call_h->ir_fences() || call_h->ir_reads().test(loc.gmember().id);
                         w |= call_h->ir_writes().test(loc.gmember().id);
                     }
                 }
@@ -1182,15 +1187,16 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
             unsigned const i = &loc - map.begin();
 
             // Every return will be "read" by the rts:
-            if(loc.lclass() == LOC_RETURN && loc.fn() == fn.handle())
+            if(is_return && loc.lclass() == LOC_RETURN && loc.fn() == fn.handle())
                 rw(i, true, false);
-
-            // Some gmembers will be written:
-            if(loc.lclass() == LOC_GMEMBER)
+            else if(loc.lclass() == LOC_GMEMBER)
+            {
+                // Some gmembers will be written:
                 rw(i, fn.ir_writes().test(loc.gmember().id), false);
+            }
         }
     }
-    else if(!is_fn) // fns handled earlier.
+    else if(!is_fn && inst.op != ASM_FN_SET_CALL) // fns handled earlier.
     {
         auto test_loc = [&](locator_t loc)
         {
@@ -1245,7 +1251,7 @@ bitset_t asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> co
     for(locator_t const& loc : map)
     {
         // Every arg will be "written" at root:
-        if(loc.lclass() == LOC_ARG)
+        if(loc.lclass() == LOC_ARG && loc.fn() == fn.handle())
             bitset_set(root.vlive.in, &loc - map.begin());
 
         // Track which locs have array types:
@@ -1410,10 +1416,7 @@ lvars_manager_t asm_graph_t::build_lvars(fn_t const& fn)
                 // We have to set the value here temporarily,
                 // to ensure the interference will be marked.
                 // It usually gets cleared right after.
-                if(write)
-                    bitset_set(live, i);
-
-                if(read)
+                if(write || read)
                     bitset_set(live, i);
 
 #if 0
@@ -1441,11 +1444,22 @@ lvars_manager_t asm_graph_t::build_lvars(fn_t const& fn)
         }
     }
 
-    // All params will interfere with each other:
+    if(fn.fn_set())
+    {
+        // For fn sets, assume their arg/rets interfere with all the other arg/rets.
+        // NOTE: This is a hack to avoid allocation mistakes.
+        lvars.for_each_lvar(false, [&](locator_t loc, unsigned index)
+        {
+            if(is_arg_ret(loc.lclass()))
+                lvars.add_lvar_interferes_with_everything(index);
+        });
+    }
+
+    // All 'this' params will interfere with each other:
     bitset_clear_all(bs_size, live);
     lvars.for_each_lvar(true, [&](locator_t loc, unsigned index)
     {
-        if(loc.lclass() == LOC_ARG)
+        if(is_arg(loc.lclass()))
             bitset_set(live, index);
     });
     lvars.add_lvar_interferences(live);

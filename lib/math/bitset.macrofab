@@ -1,0 +1,54 @@
+/*
+ * Copyright (c) 2025, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This macro defines a tightly-packed bitset array.
+// NOTE: Requires 'bit.fab' to work.
+
+#:name:#       // The name of our array.
+#:size:#       // The number of bits.
+#:group:#      // The group to store the array in.
+#:init_value:# // Value of type U to initialize all array elements to.
+
+ct Int #name#_bits = #size#
+
+vars #group#
+    U[] #name# = U[(#name#_bits + 7) / 8](#init_value#)
+
+fn #name#_test(U bit) Bool
+: +inline
+    return #name#[bit >> 3] & flag_bit(bit & %111)
+
+fn #name#_clear(U bit)
+: +inline
+    #name#[bit >> 3] &= flag_mask(bit & %111)
+
+fn #name#_set(U bit)
+: +inline
+    #name#[bit >> 3] |= flag_bit(bit & %111)
+
+fn #name#_flip(U bit)
+: +inline
+    #name#[bit >> 3] ^= flag_bit(bit & %111)
+
+fn #name#_assign(U bit, Bool value)
+: +inline
+    if value
+        #name#_set(bit)
+    else
+        #name#_clear(bit)
+
+fn #name#_clear_all()
+: +inline
+    #name# = U[len(#name#)](0)
+
+fn #name#_set_all()
+: +inline
+    #name# = U[len(#name#)]($FF)
+
+fn #name#_flip_all()
+: +inline
+    for I.#name# i = 0; i < len(#name#); i += 1
+        i[] ^= $FF

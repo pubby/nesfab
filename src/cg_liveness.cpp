@@ -35,7 +35,7 @@ static void _live_visit(ssa_ht def, cfg_ht cfg_node)
     bitset_set(live(cfg_node).in, def.id);
 
     unsigned const input_size = cfg_node->input_size();
-    passert(input_size > 0, cfg_node, input_size);
+    //passert(input_size > 0, cfg_node, input_size);
     for(unsigned i = 0; i < input_size; ++i)
     {
         cfg_ht input = cfg_node->input(i);

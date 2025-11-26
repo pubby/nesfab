@@ -23,6 +23,7 @@ struct ast_node_t
 
     unsigned num_children() const;
     void weaken_idents();
+    bool is_deferred() const;
 };
 
 #endif

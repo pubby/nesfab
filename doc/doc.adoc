@@ -4830,8 +4830,8 @@ The `subalign` and `subsegment` <<modifiers, modifiers>> modifiers force <<kw_la
 
 Syntax:
 ----
-: subalign value
-: subsegment value
+: subalign(value)
+: subsegment(value)
 ----
 
 - `value` is an expression of type Int.

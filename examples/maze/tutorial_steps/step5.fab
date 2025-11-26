@@ -65,6 +65,7 @@ nmi main_nmi()
     
 mode main()
 : nmi main_nmi
+    mmc3_reset()
     // Set the palette:
     palette = example_palette
     ppu_upload_palette()

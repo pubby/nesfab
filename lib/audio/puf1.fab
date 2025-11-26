@@ -583,9 +583,9 @@ asm fn puf(U arg) Bool
         sta $4012
         lda &puf_dpcm_length-1, x
         sta $4013
-        lda #32
+        lda #64
         sta $4011
-        lsr // A = 16
+        lda #16
     label silence_dpcm
         ora #%00001111
         sta $4015

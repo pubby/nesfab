@@ -70,6 +70,11 @@ public:
         });
     }
 
+    void add_lvar_interferes_with_everything(unsigned i)
+    {
+        bitset_set_n(bitset_size(), lvar_interferences(i), num_all_lvars());
+    }
+
     void add_fn_interference(unsigned i, fn_ht fn)
     { 
         assert(i < m_fn_interferences.size());

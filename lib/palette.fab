@@ -78,15 +78,15 @@ fn hue_shift(U color, S amount) U
     if amount == 0
         return color
     U hue = color_hue(color) - 1
-    if hue >= $C
+    if hue >= 12
         return color
     hue += U(amount)
-    if hue >= 256 - $C
-        hue += $C
-    else while hue >= $C
+    if hue >= 256 - 12
+        hue += 12
+    else while hue >= 12
     : -unroll
-        hue -= $C
-    return (color & %11110000) | (hue + 1)
+        hue -= 12
+    return (color & $F0) | (hue + 1)
 
 ///////////////////////////////////////////////////////////////////////////////
 // FADE EFFECTS ///////////////////////////////////////////////////////////////

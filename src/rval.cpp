@@ -199,7 +199,7 @@ fixed_t fixed(rval_t const& rval, type_t type, pstring_t pstring)
         compiler_error(pstring, "Value is uninitialized.");
 
     if(!v->is_num() || !is_scalar(type.name()))
-        compiler_error(pstring, fmt("Expecting compile-time constant numeric expression. %", *v));
+        compiler_error(pstring, fmt("Expecting compile-time constant numeric expression. (Got %)", *v));
 
     assert(is_masked(v->fixed(), type.name()));
     return v->fixed();
@@ -252,4 +252,14 @@ rval_t default_init(type_t type, pstring_t at)
     }
 
     return new_rval;
+}
+
+expr_value_t defer_value_t::to_expr_value() const
+{
+    return { rval, type, pstring, time };
+}
+
+defer_value_t expr_value_t::to_defer() const
+{
+    return { rval(), type, pstring, time };
 }

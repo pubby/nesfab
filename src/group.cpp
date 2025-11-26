@@ -58,7 +58,7 @@ void group_vars_t::determine_has_init()
     m_has_init = false;
     for(gvar_ht gvar : gvars())
     {
-        if(gvar->init_expr)
+        if(gvar->init_expr())
         {
             m_has_init = true;
             break;

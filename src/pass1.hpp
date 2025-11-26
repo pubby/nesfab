@@ -213,7 +213,7 @@ public:
         assert((handle < 0) == local_const);
         if(anonymous)
         {
-            assert(!anonymous_table.empty());
+            passert(!anonymous_table.empty(), anonymous_table.size());
             anonymous_table.new_def(handle);
         }
         else
@@ -818,6 +818,36 @@ public:
         active_global->define_const(
             extend(var_decl.name, line), std::move(ideps), var_decl.src_type, d, omni, false, nullptr, convert_eternal_expr(&expr, IDEP_TYPE), 
             std::move(paa_def), std::move(mods));
+        ideps.clear();
+    }
+
+    [[gnu::always_inline]]
+    void global_const_declare_defer(var_decl_t const& var_decl, unsigned line, std::unique_ptr<mods_t> mods)
+    {
+        uses_type(var_decl.src_type.type);
+
+        if(mods)
+            mods->validate(var_decl.name, MOD_align | MOD_dpcm | MOD_static | MOD_sector | MOD_unused | MOD_static_fixed);
+
+        active_global = &lookup_global(var_decl.name);
+        const_ht c = active_global->define_deferred_const(extend(var_decl.name, line), std::move(ideps), std::move(mods));
+        c.safe().deferred_type(var_decl.src_type);
+        ideps.clear();
+    }
+
+    [[gnu::always_inline]]
+    void global_const_assign_defer(lpstring_t ident, ast_node_t& index, ast_node_t& value, bool is16, std::unique_ptr<mods_t> mods)
+    {
+        if(mods)
+            mods->validate(ident);
+
+        // Do these before defining, to set 'ideps'.
+        convert_ast(index, IDEP_TYPE);
+        convert_ast(value, IDEP_TYPE);
+
+        active_global = &lookup_global(ident);
+        const_ht c = active_global->define_deferred_const(ident, std::move(ideps), std::move(mods));
+        c.safe().deferred_assignment(index, value, is16);
         ideps.clear();
     }
 

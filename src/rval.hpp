@@ -6,6 +6,7 @@
 #include <variant>
 #include <vector>
 #include <limits>
+#include <map>
 
 #include <boost/container/small_vector.hpp>
 
@@ -153,6 +154,18 @@ struct deref_t
     ssa_value_t index = {};
 };
 
+struct defer_value_t
+{
+    rval_t rval;
+    type_t type;
+    pstring_t pstring;
+    value_time_t time = {};
+
+    struct expr_value_t to_expr_value() const;
+};
+
+using defer_t = std::map<unsigned, defer_value_t>;
+
 struct strval_t
 {
     charmap_t const* charmap = nullptr;
@@ -167,10 +180,12 @@ fixed_t sfixed(rval_t const& rval, type_t type, pstring_t pstring);
 
 struct expr_value_t
 {
-    std::variant<rval_t, lval_t, deref_t, strval_t> val;
+    std::variant<rval_t, lval_t, deref_t, strval_t, defer_t> val;
     type_t type = TYPE_VOID;
     pstring_t pstring = {};
     value_time_t time = {};
+
+    defer_value_t to_defer() const;
 
     rval_t const* is_rval() const { return std::get_if<rval_t>(&val); }
     rval_t* is_rval() { return std::get_if<rval_t>(&val); }
@@ -206,7 +221,7 @@ struct expr_value_t
     
     value_time_t calc_time() const { return ::calc_time(type, rval()); }
 
-    void assert_valid() const { passert(!is_rval() || calc_time() <= time, (int)calc_time(), (int)time, type); }
+    void assert_valid() const { passert(!is_rval() || calc_time() <= time, (int)calc_time(), (int)time, type, val.index()); }
 
     bool is_ct() const { assert_valid(); return time == CT; }
     bool is_lt() const { assert_valid(); return time == LT; }

@@ -82,7 +82,7 @@ bool gen_group_var_inits(std::vector<gvar_ht> const& gvars, asm_proc_t& proc)
 
     for(gvar_ht v : gvars)
     {
-        if(!v->init_expr)
+        if(!v->init_expr())
             continue;
 
         assert(v->end() - v->begin() > 0);

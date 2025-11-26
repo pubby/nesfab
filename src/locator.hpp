@@ -151,6 +151,30 @@ constexpr bool is_runtime(locator_class_t lclass)
     return lclass == LOC_RUNTIME_RAM || lclass == LOC_RUNTIME_ROM;
 }
 
+constexpr bool is_arg(locator_class_t lclass)
+{
+    switch(lclass)
+    {
+    case LOC_ARG:
+    case LOC_PTR_ARG:
+        return true;
+    default:
+        return false;
+    }
+}
+
+constexpr bool is_ret(locator_class_t lclass)
+{
+    switch(lclass)
+    {
+    case LOC_RETURN:
+    case LOC_PTR_RETURN:
+        return true;
+    default:
+        return false;
+    }
+}
+
 constexpr bool is_arg_ret(locator_class_t lclass)
 {
     switch(lclass)
@@ -437,7 +461,7 @@ public:
 
     fn_ht fn() const
     {
-        assert(has_fn(lclass()));
+        passert(has_fn(lclass()), *this);
         return { handle() };
     }
 

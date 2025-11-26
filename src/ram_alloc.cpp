@@ -634,7 +634,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 
         auto const check_init = [&](gvar_ht v, group_inits_t& zero_inits, group_inits_t& value_inits)
         {
-            if(v->init_expr)
+            if(v->init_expr())
             {
                 v->for_each_locator([&](locator_t loc)
                 { 
@@ -1091,7 +1091,7 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
                                          loc, info.size, fn.global.name));
         }
 
-        dprint(log, "--RESULT", span);
+        dprint(log, "--RESULT", loc, span);
 
         // Record the allocation.
 
@@ -1167,6 +1167,8 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
                         int const co_i = co->lvars().index(co_loc);
                         if(co_i < 0)
                             continue;
+
+                        dprint(log, "---ASSIGN_SET_SPAN", set->global.name, co_loc, span);
 
                         if(info.ptr_alt >= 0)
                         {

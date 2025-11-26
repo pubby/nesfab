@@ -31,6 +31,7 @@
 #include "debug_print.hpp"
 #include "byte_block.hpp"
 #include "ident_map.hpp"
+#include "eternal_new.hpp"
 
 class rom_array_t;
 struct precheck_tracked_t;
@@ -157,6 +158,8 @@ public:
         src_type_t src_type, defined_group_data_t group, bool omni, bool chrrom, ast_node_t const* chrrom_offset,
         ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
         std::unique_ptr<mods_t> mods);
+    const_ht define_deferred_const(
+        lpstring_t lpstring, ideps_map_t&& ideps, std::unique_ptr<mods_t> mods);
     struct_ht define_struct(
         lpstring_t lpstring, ideps_map_t&& ideps, field_map_t&& map, std::unique_ptr<mods_t> mods);
     charmap_ht define_charmap(
@@ -244,6 +247,7 @@ private:
         {
         default: throw std::runtime_error("Invalid global.");
         case GLOBAL_FN:      fn(this->impl<fn_t>());      break;
+        case GLOBAL_DEFERRED_CONST:
         case GLOBAL_CONST:   fn(this->impl<const_t>());   break;
         case GLOBAL_VAR:     fn(this->impl<gvar_t>());    break;
         case GLOBAL_STRUCT:  fn(this->impl<struct_t>());  break;
@@ -343,7 +347,7 @@ public:
     void precheck();
     void compile();
 private:
-    void gen_member_types(struct_t const& s, int tea_size = -1);
+    std::uint16_t gen_member_types(struct_t const& s, int tea_size = -1, std::uint16_t offset = 0);
 
     field_map_t m_fields;
 
@@ -671,7 +675,7 @@ public:
     global_datum_t(global_t& global, src_type_t src_type, ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def, std::unique_ptr<mods_t> mods)
     : modded_t(std::move(mods))
     , global(global)
-    , init_expr(expr)
+    , m_init_expr(expr)
     , m_src_type(src_type)
     , m_def(std::move(paa_def))
     {}
@@ -679,9 +683,8 @@ public:
     virtual ~global_datum_t() = default;
     
     global_t& global;
-    ast_node_t const* const init_expr = nullptr;
-
     type_t type() const { return m_src_type.type; }
+    ast_node_t const* init_expr() { return m_init_expr; }
     rval_t const& rval() const { passert(global.resolved(), global.name); return m_rval; }
 
     void dethunkify(bool full);
@@ -700,6 +703,7 @@ protected:
     virtual void paa_init(loc_vec_t&& vec) = 0;
     virtual void rval_init(rval_t&& rval) = 0;
 
+    ast_node_t const* m_init_expr = nullptr;
     src_type_t m_src_type = {};
     rval_t m_rval = {};
     std::unique_ptr<paa_def_t> m_def;
@@ -809,7 +813,16 @@ public:
     , banked(banked)
     , chrrom(chrrom)
     , chrrom_offset(chrrom_offset)
-    { assert(init_expr); }
+    { assert(init_expr()); }
+
+    // Deferred version:
+    const_t(global_t& global, pstring_t pstring, std::unique_ptr<mods_t> mods)
+    : global_datum_t(global, {}, eternal_emplace<ast_node_t>(ast_node_t{{lex::TOK_ct_deferred_null, pstring}}), {}, std::move(mods))
+    , group_data({})
+    , banked(false)
+    , chrrom(false)
+    , chrrom_offset(nullptr)
+    {}
 
     virtual ~const_t() = default;
 
@@ -826,12 +839,16 @@ public:
 
     virtual bool is_chrrom() const override { return chrrom; }
 
+    void deferred_type(src_type_t src_type);
+    void deferred_assignment(ast_node_t const& index, ast_node_t const& value, bool is16);
+
 private:
     virtual void paa_init(asm_proc_t&& proc);
     virtual void paa_init(loc_vec_t&& vec);
     virtual void rval_init(rval_t&& rval);
 
     rom_array_ht m_rom_array = {};
+    std::mutex m_init_mutex;
 };
 
 class charmap_t : public modded_t

@@ -11,7 +11,9 @@ constexpr token_type_t TOK_png = 4;
 constexpr token_type_t TOK_txt = 5;
 constexpr token_type_t TOK_pal = 6;
 constexpr token_type_t TOK_map = 7;
-constexpr token_type_t TOK_END = 8;
+constexpr token_type_t TOK_wav = 8;
+constexpr token_type_t TOK_aiff = 9;
+constexpr token_type_t TOK_END = 10;
 inline std::string_view token_name(token_type_t type)
 {
     using namespace std::literals;
@@ -25,6 +27,8 @@ inline std::string_view token_name(token_type_t type)
     case TOK_txt: return "txt"sv;
     case TOK_pal: return "pal"sv;
     case TOK_map: return "map"sv;
+    case TOK_wav: return "wav"sv;
+    case TOK_aiff: return "aiff"sv;
     }
 }
 inline std::string_view token_string(token_type_t type)
@@ -40,12 +44,14 @@ inline std::string_view token_string(token_type_t type)
     case TOK_txt: return "txt"sv;
     case TOK_pal: return "pal"sv;
     case TOK_map: return "map"sv;
+    case TOK_wav: return "wav"sv;
+    case TOK_aiff: return "aiff"sv;
     }
 }
 #define ext_lex_TOK_KEY_CASES \
 
-constexpr token_type_t TOK_LAST_STATE = 7;
-constexpr token_type_t TOK_START = 8;
+constexpr token_type_t TOK_LAST_STATE = 9;
+constexpr token_type_t TOK_START = 10;
 extern unsigned const lexer_ec_table[256];
-extern token_type_t const lexer_transition_table[1134];
+extern token_type_t const lexer_transition_table[1848];
 } // namespace ext_lex

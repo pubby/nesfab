@@ -45,7 +45,7 @@ namespace
     {
         unsigned index;  // Index into proc.code
         unsigned offset; // Offset in bytes
-        unsigned segment;   // Size in bytes
+        std::int64_t segment;   // Size in bytes
         pstring_t pstring;
     };
 } // end anonymous namespace
@@ -362,6 +362,12 @@ public:
 
     template<do_t D>
     expr_value_t to_rval(expr_value_t v);
+
+    template<do_t D>
+    void remove_defer(expr_value_t& v, type_t desired);
+
+    template<do_t D>
+    expr_value_t cast_array_index(expr_value_t array_index, bool is8);
 
     ///////////////////////
     // compiler-specific //
@@ -851,6 +857,8 @@ void eval_t::do_expr_result(ast_node_t const& expr, type_t expected_type)
 
     if(expected_type.name() != TYPE_VOID)
     {
+        remove_defer<D>(v, expected_type);
+
         if(!can_size_unsized_array(v.type, expected_type))
             v = throwing_cast<D>(std::move(v), expected_type, true);
 
@@ -1710,19 +1718,23 @@ static void _finish_segment(asm_proc_t& proc, sub_t const& parent_sub)
     if(!parent_sub.segment)
         return;
 
+    std::int64_t segment = parent_sub.segment;
+
     unsigned const vec_end = proc.code.size();
     assert(parent_sub.index < proc.code.size());
     unsigned bytes = proc.bytes_between(parent_sub.index, proc.code.size());
 
-    if(bytes > parent_sub.segment)
-    {
-        compiler_error(parent_sub.pstring, fmt("Segment of size % does not fit into subsegment of %.", 
-                                            bytes, parent_sub.segment));
-    }
+    if(segment < 0)
+        segment = bytes;
+    else if(bytes > segment)
+        compiler_error(parent_sub.pstring, fmt("Segment of size % does not fit into subsegment of %.", bytes, segment));
 
-    if((parent_sub.offset % parent_sub.segment) + bytes > parent_sub.segment)
+    if(segment == 0)
+        return;
+
+    if((parent_sub.offset % segment) + bytes > segment)
     {
-        unsigned const pad = parent_sub.segment - (parent_sub.offset % parent_sub.segment);
+        unsigned const pad = segment - (parent_sub.offset % segment);
 
         for(unsigned i = 0; i < pad; i += 1)
             proc.push_inst(asm_inst_t{});
@@ -1802,25 +1814,33 @@ void eval_t::do_byte_block(ast_node_t const& ast, asm_proc_t& proc)
 
                 sub_t const& parent_sub = label_sub_stack.back();
 
-                unsigned subsegment = 0;
+                std::int64_t subsegment = 0;
 
                 if(mods && mods->subsegment)
                 {
-                    rpair_t const result = interpret_expr(ast.children[i].token.pstring, *mods->subsegment, TYPE_INT, this, nullptr);
-                    if(calc_time(result.type, result.value) >= LT)
-                        compiler_error(ast.children[i].token.pstring, "Unable to determine subsegment at compile-time.");
-                    subsegment = std::get<ssa_value_t>(result.value[0]).whole();
-
+                    if(mods->subsegment->token.type == TOK_default)
+                        subsegment = -1; // Mark default;
+                    else
+                    {
+                        rpair_t const result = interpret_expr(ast.children[i].token.pstring, *mods->subsegment, TYPE_INT, this, nullptr);
+                        if(calc_time(result.type, result.value) >= LT)
+                            compiler_error(ast.children[i].token.pstring, "Unable to determine subsegment at compile-time.");
+                        subsegment = std::get<ssa_value_t>(result.value[0]).whole();
+                    }
                 }
 
                 if(mods && mods->subalign)
                 {
-                    rpair_t const result = interpret_expr(ast.children[i].token.pstring, *mods->subalign, TYPE_INT, this, nullptr);
-                    if(calc_time(result.type, result.value) >= LT)
-                        compiler_error(ast.children[i].token.pstring, "Unable to determine subalign at compile-time.");
-                    unsigned const subalign = std::get<ssa_value_t>(result.value[0]).whole();
+                    unsigned subalign = 256;
+                    if(mods->subalign->token.type != TOK_default)
+                    {
+                        rpair_t const result = interpret_expr(ast.children[i].token.pstring, *mods->subalign, TYPE_INT, this, nullptr);
+                        if(calc_time(result.type, result.value) >= LT)
+                            compiler_error(ast.children[i].token.pstring, "Unable to determine subalign at compile-time.");
+                        subalign = std::get<ssa_value_t>(result.value[0]).whole();
+                    }
 
-                    if(subsegment && subalign % subsegment != 0)
+                    if(subsegment > 0 && subalign % subsegment != 0)
                         compiler_error(pstring, "subalign must be a multiple of subsegment.");
 
                     unsigned bytes = proc.bytes_between(parent_sub.index, proc.code.size());
@@ -2127,6 +2147,38 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
     {
     default:
         compiler_error(ast.token.pstring, fmt("Invalid token '%' in expression.", token_string(ast.token.type)));
+
+    case TOK_ct_deferred_null:
+        return
+        {
+            .val = defer_t(),
+            .type = TYPE_VOID,
+            .pstring = ast.token.pstring,
+        };
+        break;
+
+    case TOK_ct_deferred_8:
+    case TOK_ct_deferred_16:
+        {
+            bool const is8 = ast.token.type == TOK_ct_deferred_8;
+            expr_value_t array_index = to_rval<D>(do_expr<D>(ast.children[1]));
+            array_index = cast_array_index<D>(std::move(array_index), is8);
+
+            expr_value_t value = to_rval<D>(do_expr<D>(ast.children[2]));
+            value.pstring = ast.token.pstring;
+
+            expr_value_t parent = do_expr<D>(ast.children[0]);
+            auto result = std::get<defer_t>(parent.val).emplace(array_index.whole(), value.to_defer());
+
+            if(!result.second)
+            {
+                throw compiler_error_t(
+                    fmt_error(array_index.pstring, "Duplicate index in assignment.")
+                    + fmt_note(result.first->second.pstring, "Previous assignment here."));
+            }
+
+            return parent;
+        }
 
     case TOK_rpair:
         {
@@ -4142,23 +4194,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             expr_value_t array_val = do_expr<D>(ast.children[0]);
             expr_value_t array_index = to_rval<D>(do_expr<D>(ast.children[1]));
 
-            if(is_ct(array_index.type.name()))
-                array_index = throwing_cast<D>(std::move(array_index), is8 ? TYPE_U : TYPE_U20, true);
-
-            if(is8)
-            {
-                if(array_index.type.name() == TYPE_I)
-                    array_index = throwing_cast<D>(std::move(array_index), TYPE_U, false);
-                else if(array_index.type != TYPE_U)
-                    compiler_error(array_index.pstring, fmt("[] expects an index of type U. Got %.", array_index.type));
-            }
-            else
-            {
-                if(array_index.type.name() == TYPE_II)
-                    array_index = throwing_cast<D>(std::move(array_index), TYPE_U20, false);
-                else if(array_index.type != TYPE_U20)
-                    compiler_error(array_index.pstring, fmt("{} expects an index of type UU. Got %.", array_index.type));
-            }
+            array_index = cast_array_index<D>(std::move(array_index), is8);
 
             if(::is_index(array_val.type.name()))
             {
@@ -4343,7 +4379,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     if(is_tea)
                     {
                         for(auto& v : rval) // TODO: handle link
-                            v = std::get<ct_array_t>(v)[index];
+                        {
+                            // Keep this as 2 lines!!
+                            ssa_value_t access = ssa_value_t(std::get<ct_array_t>(v)[index]);
+                            v = access;
+                        }
+
+                        assert(array_val.is_rval() == rval_ptr);
                     }
                     else
                     {
@@ -5638,6 +5680,89 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         std::runtime_error("Cannot convert to rvalue.");
 
     return v;
+}
+
+template<eval_t::do_t D>
+void eval_t::remove_defer(expr_value_t& v, type_t desired)
+{
+    if(!std::holds_alternative<defer_t>(v.val))
+        return;
+
+    assert(desired.name() == TYPE_TEA);
+
+    auto const& defer = std::get<defer_t>(v.val);
+
+    unsigned const num_members = ::num_members(desired);
+
+    unsigned len = desired.array_length();
+
+    if(len == 0 && !defer.empty())
+    {
+        len = defer.rbegin()->first + 1;
+        desired.set_array_length(len);
+    }
+
+    if(len == 0)
+        compiler_error(v.pstring, "Deferred ct value lacks assignment. Array size cannot be inferred.");
+
+    rval_t result = default_init(desired, v.pstring);
+
+    if(!is_check(D))
+    {
+        for(unsigned m = 0; m < num_members; ++m)
+        {
+            type_t const mt = member_type(desired, m);
+            ct_array_t a = make_ct_array(len);
+
+            if(!is_scalar(mt.elem_type().name()))
+                compiler_error(v.pstring, "Non-scalar type in deferred ct value.");
+
+            for(unsigned i = 0; i < len; i += 1)
+                a[i] = ssa_value_t(0u, mt.elem_type().name());
+
+            for(auto const& pair : defer)
+            {
+                if(pair.first >= len)
+                {
+                    compiler_error(pair.second.pstring, 
+                        fmt("Array index is out of bounds. (index: % >= size: %)", 
+                            pair.first, len));
+                }
+
+                auto casted = throwing_cast<D>(pair.second.to_expr_value(), mt.elem_type(), true);
+                a[pair.first] = std::get<ssa_value_t>(casted.rval()[m]);
+            }
+
+            result[m] = std::move(a);
+        }
+    }
+
+    v.val = std::move(result);
+    v.type = desired;
+}
+
+template<eval_t::do_t D>
+expr_value_t eval_t::cast_array_index(expr_value_t array_index, bool is8)
+{
+    if(is_ct(array_index.type.name()))
+        array_index = throwing_cast<D>(std::move(array_index), is8 ? TYPE_U : TYPE_U20, true);
+
+    if(is8)
+    {
+        if(array_index.type.name() == TYPE_I)
+            array_index = throwing_cast<D>(std::move(array_index), TYPE_U, false);
+        else if(array_index.type != TYPE_U)
+            compiler_error(array_index.pstring, fmt("[] expects an index of type U. Got %.", array_index.type));
+    }
+    else
+    {
+        if(array_index.type.name() == TYPE_II)
+            array_index = throwing_cast<D>(std::move(array_index), TYPE_U20, false);
+        else if(array_index.type != TYPE_U20)
+            compiler_error(array_index.pstring, fmt("{} expects an index of type UU. Got %.", array_index.type));
+    }
+
+    return array_index;
 }
 
 template<eval_t::do_t D>

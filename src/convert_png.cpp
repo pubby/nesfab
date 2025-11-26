@@ -7,15 +7,53 @@
 #include "format.hpp"
 #include "lodepng/lodepng.h"
 
-std::uint8_t map_grey_alpha(std::uint8_t grey, std::uint8_t alpha)
+static std::uint8_t map_grey_alpha(std::uint8_t grey, std::uint8_t alpha, std::uint8_t& transparent)
 {
-    return (grey * (alpha + 1)) >> (6 + 8);
+    transparent = alpha < 128;
+    return grey >> 6;
 }
 
-std::vector<std::uint8_t> png_to_chr(std::uint8_t const* png, std::size_t size, bool chr16)
+namespace
+{
+    class palette_map_t
+    {
+    public:
+        palette_map_t(unsigned char* palette, unsigned num_colors)
+        {
+            for(unsigned i = 0; i < num_colors; ++i) 
+            {
+                std::uint8_t const a = palette[4 * i + 3];
+                if(a >= 128)
+                    map.push_back(i);
+            }
+        }
+
+        std::uint8_t lookup(std::uint8_t palette) const 
+        { 
+            for(unsigned i = 0; i < map.size(); i += 1)
+                if(palette == map[i])
+                    return i;
+            return 0;
+        }
+
+        std::uint8_t is_alpha(std::uint8_t palette) const 
+        {
+            for(unsigned i = 0; i < map.size(); i += 1)
+                if(palette == map[i])
+                    return false;
+            return true;
+        }
+
+    private:
+        std::vector<std::uint8_t> map;
+    };
+}
+
+std::vector<std::uint8_t> png_to_chr(std::uint8_t const* png, std::size_t size, bool chr16, std::vector<unsigned>* indices)
 {
     unsigned width, height;
     std::vector<std::uint8_t> image; //the raw pixels
+    std::vector<std::uint8_t> transparent;
     lodepng::State state;
     unsigned error;
 
@@ -32,11 +70,20 @@ std::vector<std::uint8_t> png_to_chr(std::uint8_t const* png, std::size_t size, 
     switch(state.info_png.color.colortype)
     {
     case LCT_PALETTE:
-        state.info_raw.colortype = LCT_PALETTE;
-        if((error = lodepng::decode(image, width, height, state, png, size)))
-            goto fail;
-        for(std::uint8_t& c : image)
-            c &= 0b11;
+        {
+            state.info_raw.colortype = LCT_PALETTE;
+            if((error = lodepng::decode(image, width, height, state, png, size)))
+                goto fail;
+            LodePNGColorMode& color = state.info_png.color;
+            palette_map_t map(color.palette, color.palettesize);
+            unsigned const n = width * height;
+            transparent.resize(n);
+            for(unsigned i = 0; i < n; i += 1)
+            {
+                transparent[i] = map.is_alpha(image[i]);
+                image[i] = map.lookup(image[i]);
+            }
+        }
         break;
 
     case LCT_GREY:
@@ -44,6 +91,7 @@ std::vector<std::uint8_t> png_to_chr(std::uint8_t const* png, std::size_t size, 
         state.info_raw.colortype = LCT_GREY;
         if((error = lodepng::decode(image, width, height, state, png, size)))
             goto fail;
+        transparent.resize(width * height, 0);
         for(std::uint8_t& c : image)
             c >>= 6;
         break;
@@ -53,9 +101,10 @@ std::vector<std::uint8_t> png_to_chr(std::uint8_t const* png, std::size_t size, 
         if((error = lodepng::decode(image, width, height, state, png, size)))
             goto fail;
         assert(image.size() == width * height * 2);
-        unsigned const n = image.size() / 2;
+        unsigned const n = width * height;
+        transparent.resize(n);
         for(unsigned i = 0; i < n; ++i)
-            image[i] = map_grey_alpha(image[i*2], image[i*2 + 1]);
+            image[i] = map_grey_alpha(image[i*2], image[i*2 + 1], transparent[i]);
         image.resize(n);
         break;
     }
@@ -63,30 +112,70 @@ std::vector<std::uint8_t> png_to_chr(std::uint8_t const* png, std::size_t size, 
     // Now convert to CHR
     {
         std::vector<std::uint8_t> result;
-        result.resize(image.size() / 4);
+        result.reserve(image.size() / 4);
 
-        unsigned i = 0;
+        unsigned index = 0;
+        if(indices)
+            indices->reserve(image.size() / 64);
 
         if(chr16)
         {
             for(unsigned ty = 0; ty < height; ty += 16)
             for(unsigned tx = 0; tx < width; tx += 8)
             {
-                for(unsigned y = 0; y < 8; ++y, ++i)
-                for(unsigned x = 0; x < 8; ++x)
-                    result[i] |= (image[tx + x + (ty + y)*width] & 1) << (7-x);
+                if(indices)
+                    indices->push_back(index);
 
-                for(unsigned y = 0; y < 8; ++y, ++i)
-                for(unsigned x = 0; x < 8; ++x)
-                    result[i] |= (image[tx + x + (ty + y)*width] >> 1) << (7-x);
+                bool any_transparent = false;
+                bool any_opaque = false;
 
-                for(unsigned y = 8; y < 16; ++y, ++i)
+                for(unsigned y = 0; y < 16; ++y)
                 for(unsigned x = 0; x < 8; ++x)
-                    result[i] |= (image[tx + x + (ty + y)*width] & 1) << (7-x);
+                {
+                    bool t = transparent[tx + x + (ty + y)*width];
+                    any_transparent |= t;
+                    any_opaque      |= !t;
+                }
 
-                for(unsigned y = 8; y < 16; ++y, ++i)
-                for(unsigned x = 0; x < 8; ++x)
-                    result[i] |= (image[tx + x + (ty + y)*width] >> 1) << (7-x);
+                if(any_transparent && any_opaque)
+                    throw convert_error_t(fmt("Tile contains partial transparency. (X = %, Y = %)", tx, ty));
+
+                if(any_transparent)
+                    continue;
+
+                for(unsigned y = 0; y < 8; ++y)
+                {
+                    std::uint8_t v = 0;
+                    for(unsigned x = 0; x < 8; ++x)
+                        v |= (image[tx + x + (ty + y)*width] & 1) << (7-x);
+                    result.push_back(v);
+                }
+
+                for(unsigned y = 0; y < 8; ++y)
+                {
+                    std::uint8_t v = 0;
+                    for(unsigned x = 0; x < 8; ++x)
+                        v |= (image[tx + x + (ty + y)*width] >> 1) << (7-x);
+                    result.push_back(v);
+                }
+
+                for(unsigned y = 8; y < 16; ++y)
+                {
+                    std::uint8_t v = 0;
+                    for(unsigned x = 0; x < 8; ++x)
+                        v |= (image[tx + x + (ty + y)*width] & 1) << (7-x);
+                    result.push_back(v);
+                }
+
+                for(unsigned y = 8; y < 16; ++y)
+                {
+                    std::uint8_t v = 0;
+                    for(unsigned x = 0; x < 8; ++x)
+                        v |= (image[tx + x + (ty + y)*width] >> 1) << (7-x);
+                    result.push_back(v);
+                }
+
+                index += 1;
             }
         }
         else
@@ -94,17 +183,45 @@ std::vector<std::uint8_t> png_to_chr(std::uint8_t const* png, std::size_t size, 
             for(unsigned ty = 0; ty < height; ty += 8)
             for(unsigned tx = 0; tx < width; tx += 8)
             {
-                for(unsigned y = 0; y < 8; ++y, ++i)
-                for(unsigned x = 0; x < 8; ++x)
-                    result[i] |= (image[tx + x + (ty + y)*width] & 1) << (7-x);
+                if(indices)
+                    indices->push_back(index);
 
-                for(unsigned y = 0; y < 8; ++y, ++i)
+                bool any_transparent = false;
+                bool any_opaque = false;
+
+                for(unsigned y = 0; y < 8; ++y)
                 for(unsigned x = 0; x < 8; ++x)
-                    result[i] |= (image[tx + x + (ty + y)*width] >> 1) << (7-x);
+                {
+                    bool t = transparent[tx + x + (ty + y)*width];
+                    any_transparent |= t;
+                    any_opaque      |= !t;
+                }
+
+                if(any_transparent && any_opaque)
+                    throw convert_error_t(fmt("Tile contains partial transparency. (X = %, Y = %)", tx, ty));
+
+                if(any_transparent)
+                    continue;
+
+                for(unsigned y = 0; y < 8; ++y)
+                {
+                    std::uint8_t v = 0;
+                    for(unsigned x = 0; x < 8; ++x)
+                        v |= (image[tx + x + (ty + y)*width] & 1) << (7-x);
+                    result.push_back(v);
+                }
+
+                for(unsigned y = 0; y < 8; ++y)
+                {
+                    std::uint8_t v = 0;
+                    for(unsigned x = 0; x < 8; ++x)
+                        v |= (image[tx + x + (ty + y)*width] >> 1) << (7-x);
+                    result.push_back(v);
+                }
+
+                index += 1;
             }
         }
-
-        assert(i == result.size());
 
         return result;
     }

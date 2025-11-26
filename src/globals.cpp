@@ -56,6 +56,12 @@ unsigned global_t::define(lpstring_t lpstring, global_class_t gclass,
                 return m_impl_id;
             }
 
+            if(gclass == GLOBAL_DEFERRED_CONST && m_gclass == GLOBAL_DEFERRED_CONST)
+            {
+                m_ideps.insert(ideps.begin(), ideps.end());
+                return m_impl_id;
+            }
+
             if(lpstring && m_lpstring)
             {
                 file_contents_t file(lpstring.file_i);
@@ -150,6 +156,19 @@ const_ht global_t::define_const(lpstring_t lpstring, ideps_map_t&& ideps,
     if(d.data)
         d.data->add_const(h);
     
+    return h;
+}
+
+const_ht global_t::define_deferred_const(lpstring_t lpstring, ideps_map_t&& ideps, std::unique_ptr<mods_t> mods)
+{
+    const_t* ret;
+
+    // Create the const
+    const_ht h = { define(lpstring, GLOBAL_DEFERRED_CONST, std::move(ideps), [&](global_t& g)
+    { 
+        return const_ht::pool_emplace(ret, g, lpstring, std::move(mods)).id;
+    })};
+
     return h;
 }
 
@@ -252,6 +271,11 @@ void global_t::init()
 void global_t::parse_cleanup()
 {
     assert(compiler_phase() == PHASE_PARSE_CLEANUP);
+
+    // Remap deferred consts to consts
+    for(global_t& global : global_ht::values())
+        if(global.gclass() == GLOBAL_DEFERRED_CONST)
+            global.m_gclass = GLOBAL_CONST;
 
     // Handle solo_interrupts: 
     if(fn_t* irq = fn_t::solo_irq())
@@ -1236,12 +1260,23 @@ span_t fn_t::lvar_span(romv_t romv, int lvar_i) const
     locator_t const loc = m_lvars.locator(lvar_i);
     if(lvars_manager_t::is_call_lvar(handle(), loc))
     {
-        int index = loc.fn()->m_lvars.index(loc);
-
-        if(!loc.fn()->m_lvars.is_lvar(index))
+        if(has_fn(loc.lclass()))
+        {
+            int index = loc.fn()->m_lvars.index(loc);
+            if(!loc.fn()->m_lvars.is_lvar(index))
+                return {};
+            return loc.fn()->lvar_span(romv, index);
+        }
+        else if(has_fn_set(loc.lclass()))
+        {
+            for(fn_ht fn : *loc.fn_set())
+            {
+                int index = fn->m_lvars.index(loc);
+                if(fn->m_lvars.is_lvar(index))
+                    return fn->lvar_span(romv, index);
+            }
             return {};
-
-        return loc.fn()->lvar_span(romv, index);
+        }
     }
 
     throw std::runtime_error("Unknown lvar span");
@@ -2047,7 +2082,7 @@ void global_datum_t::resolve()
     assert(compiler_phase() == PHASE_RESOLVE);
     dethunkify(true);
 
-    if(!init_expr)
+    if(!init_expr())
     {
         if(::is_paa(m_src_type.type.name()) &&  m_src_type.type.size_of() == 0)
             compiler_error(global.pstring(), "Invalid size of 0.");
@@ -2059,7 +2094,7 @@ void global_datum_t::resolve()
         passert(paa_def(), global.name);
         _resolve_local_consts(global.handle(), m_def->local_consts);
 
-        auto data = interpret_byte_block(global.pstring(), *init_expr, nullptr, paa_def()->local_consts.data());
+        auto data = interpret_byte_block(global.pstring(), *init_expr(), nullptr, paa_def()->local_consts.data());
         std::size_t data_size = 0;
 
         if(auto const* proc = std::get_if<asm_proc_t>(&data))
@@ -2081,7 +2116,7 @@ void global_datum_t::resolve()
     }
     else
     {
-        rpair_t rpair = interpret_expr(global.pstring(), *init_expr, m_src_type.type);
+        rpair_t rpair = interpret_expr(global.pstring(), *init_expr(), m_src_type.type);
         m_src_type.type = std::move(rpair.type); // Handles unsized arrays
         if(::is_paa(m_src_type.type.name()) &&  m_src_type.type.size_of() == 0)
             compiler_error(global.pstring(), "Invalid size of 0.");
@@ -2183,7 +2218,7 @@ std::size_t gmember_t::init_span() const
 
 bool gmember_t::zero_init(unsigned atom) const
 {
-    if(!gvar.init_expr)
+    if(!gvar.init_expr())
         return false;
 
     if(loc_vec_t const* vec = std::get_if<loc_vec_t>(&gvar.init_data()))
@@ -2290,6 +2325,37 @@ std::int64_t const_t::eval_chrrom_offset() const
         compiler_error(global.pstring(), fmt("Offset of % is not positive.", offset));
 
     return offset;
+}
+
+void const_t::deferred_type(src_type_t src_type)
+{
+    if(!src_type.type.name())
+        compiler_error(src_type.pstring, "Invalid type in deferred definition.");
+
+    std::lock_guard<std::mutex> lock(m_init_mutex);
+    if(this->m_src_type.type.name())
+    {
+        throw compiler_error_t(
+            fmt_error(src_type.pstring, fmt("Deferred identifier % already declared.", global.name))
+            + fmt_note(global.pstring(), "Previous definition here:"));
+    }
+    this->m_src_type = src_type;
+}
+
+void const_t::deferred_assignment(ast_node_t const& index, ast_node_t const& value, bool is16)
+{
+    ast_node_t ast = {};
+    ast.token.type = is16 ? lex::TOK_ct_deferred_16 : lex::TOK_ct_deferred_8;
+    ast.token.pstring = concat(index.token.pstring, value.token.pstring);
+    ast.children = eternal_new<ast_node_t>(3);
+    ast.children[1] = index;
+    ast.children[2] = value;
+
+    {
+        std::lock_guard<std::mutex> lock(m_init_mutex);
+        ast.children[0] = *this->init_expr();
+        this->m_init_expr = eternal_emplace<ast_node_t>(ast);
+    }
 }
 
 //////////////
@@ -2445,10 +2511,8 @@ bc::small_vector<unsigned, 1> struct_t::inherit_lookup(pstring_t at, std::uint64
 }
 
 // Builds 'm_member_types' and dethunkifies the struct.
-void struct_t::gen_member_types(struct_t const& s, int tea_size)
+std::uint16_t struct_t::gen_member_types(struct_t const& s, int tea_size, std::uint16_t offset)
 {
-    std::uint16_t offset = 0;
-    
     for(unsigned i = 0; i < s.fields().size(); ++i)
     {
         int next_tea_size = tea_size;
@@ -2465,7 +2529,7 @@ void struct_t::gen_member_types(struct_t const& s, int tea_size)
         if(type.name() == TYPE_STRUCT)
         {
             assert(&type.struct_() != &s);
-            gen_member_types(type.struct_(), next_tea_size);
+            offset = gen_member_types(type.struct_(), next_tea_size, offset);
         }
         else
         {
@@ -2486,6 +2550,8 @@ void struct_t::gen_member_types(struct_t const& s, int tea_size)
             }
         }
     }
+
+    return offset;
 }
 
 ///////////////

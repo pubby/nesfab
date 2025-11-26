@@ -226,7 +226,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         //     ldx #11
         auto const peep_immediate_op = [&](op_t second, auto const& fn)
         {
-            if(b.op == second && op_addr_mode(a.op) == MODE_IMMEDIATE)
+            if(b.op == second && op_addr_mode(a.op) == MODE_IMMEDIATE && a.arg.lclass() == LOC_CONST_BYTE)
             {
                 a.arg = locator_t::const_byte(fn(a.arg.data()));
                 b.prune();
@@ -913,8 +913,9 @@ void asm_proc_t::optimize_short_jumps(bool use_nops)
 void asm_proc_t::optimize(bool initial)
 {
     // Order matters here.
-    o_peephole(&*code.begin(), &*code.end());
-    live_peephole(REGF_6502, code.data(), code.size(), !fn || fn->iasm);
+    do
+        o_peephole(&*code.begin(), &*code.end());
+    while (live_peephole(0, code.data(), code.size(), !fn || fn->iasm));
     absolute_to_zp();
     optimize_short_jumps(!initial);
     convert_long_branch_ops();
@@ -1430,6 +1431,9 @@ void asm_proc_t::verify_legal()
 std::vector<regs_t> live_regs_vec(regs_t live_out, asm_inst_t const* code, std::size_t size, bool live_returns)
 {
     std::vector<regs_t> live_regs(size, 0);
+
+    if(live_returns)
+        live_out |= REGF_6502;
 
     for(int i = int(size) - 1; i >= 0; --i)
     {

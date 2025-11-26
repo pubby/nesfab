@@ -48,6 +48,7 @@ struct lt_value_t;
     X(GLOBAL_FN) \
     X(GLOBAL_VAR) \
     X(GLOBAL_CONST) \
+    X(GLOBAL_DEFERRED_CONST) \
     X(GLOBAL_STRUCT) \
     X(GLOBAL_CHARMAP) \
     X(GLOBAL_FN_SET)

@@ -875,6 +875,11 @@ int main()
         dummy("locator_vec"),
         dummy("anonymous_label"),
 
+        // For deferred CT defs:
+        dummy("ct_deferred_null"),
+        dummy("ct_deferred_8"),
+        dummy("ct_deferred_16"),
+
         // string/char literals:
         accept("character", "character literal", eof()),
         accept("string_uncompressed", "uncompressed string literal", eof()),
@@ -926,7 +931,9 @@ int main()
         either_case_keyword("png"),
         either_case_keyword("txt"),
         either_case_keyword("pal"),
-        either_case_keyword("map")
+        either_case_keyword("map"),
+        either_case_keyword("wav"),
+        either_case_keyword("aiff")
         ),
         ext_nfa_nodes);
     dfa_t ext_dfa = nfa_to_dfa(ext_nfa);

@@ -44,6 +44,7 @@ vars /save
             sta $C000
             lda #$30
             sta (&_save_addr.a), y
+            lda #$FF
             bne verify // always jumps
 
         label write_byte
@@ -64,7 +65,8 @@ vars /save
             sta (&_save_addr.a), y
             // fall-through
         label verify
-            lda (&_save_addr.a), y
+            cmp (&_save_addr.a), y
+            bne verify
             cmp (&_save_addr.a), y
             bne verify
             rts
@@ -113,7 +115,7 @@ mode main()
     U counter = @save_sector[0]
 
     {PPUCTRL}(PPUCTRL_NMI_ON)
-    {PPUMASK}(PPUMASK_ON | PPUMASK_NO_CLIP)
+    {PPUMASK}(PPUMASK_BG_ON | PPUMASK_NO_CLIP)
     while true
         nmi
 
@@ -134,6 +136,7 @@ mode main()
             // Everytime the counter increments, we'll flash the value to memory:
             // NOTE: Flash memory has limited life. You shouldn't erase sectors nearly this often.
             {PPUCTRL}(0) // Disable NMI while writing, as interrupts cannot occur!
+            irq false
             flash_erase_sector(@save_sector)
             flash_write_byte(@save_sector+0, counter)
             {PPUCTRL}(PPUCTRL_NMI_ON)

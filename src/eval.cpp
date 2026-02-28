@@ -3075,7 +3075,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     if(!gd)
                         goto bad_accessor;
 
-                    passert(gd->global.resolved(), gd->global.name, fn->global.name);
+                    passert(gd->global.resolved(), gd->global.name);
 
                     auto const& hashes = gd->paa_def()->name_hashes;
                     auto it = std::find(hashes.begin(), hashes.end(), hash);

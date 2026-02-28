@@ -22,6 +22,7 @@ MAPPER(GTROM, 111) \
 MAPPER(189, 189) \
 MAPPER(30, 30) \
 MAPPER(RAINBOW, 682) \
+MAPPER(MANA, 511)
 
 struct mapper_t;
 
@@ -106,7 +107,7 @@ struct mapper_t
     std::uint16_t num_8k_chr_rom;
     std::uint16_t num_8k_chr_ram;
     bool fixed_16k;
-    bool forced_16k;
+    bool forced_16k; // for nrom 16k
     bool bus_conflicts;
     bool sram;
     bool sram_persistent;
@@ -132,6 +133,7 @@ struct mapper_t
     static mapper_t ines_30(mapper_params_t const& params);
     static mapper_t mmc5(mapper_params_t const& params);
     static mapper_t rainbow(mapper_params_t const& params);
+    static mapper_t mana(mapper_params_t const& params);
 
     std::string_view name() const { return mapper_name(type); }
     span_t rom_span() const { return forced_16k ? span_t{ 0xC000, 0x4000 } : span_t{ 0x8000, 0x8000 }; }
@@ -173,6 +175,8 @@ constexpr std::uint16_t bankswitch_addr(mapper_type_t mt = mapper().type)
         return 0x5117;
     case MAPPER_RAINBOW:
         return 0x4118;
+    case MAPPER_MANA:
+        return 0xE000;
     default: 
         return mapper().rom_span().addr;
     }
@@ -188,6 +192,9 @@ constexpr std::uint16_t vectors_after_addr(mapper_type_t mt = mapper().type)
     case MAPPER_MMC5:
     case MAPPER_189:
         return 0xE000;
+    // Reserve the first page:
+    case MAPPER_MANA:
+        return 0x8100;
     default: 
         return 0;
     }

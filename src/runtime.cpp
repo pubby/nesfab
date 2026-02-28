@@ -1262,6 +1262,10 @@ span_allocator_t alloc_runtime_rom()
         });
     };
 
+    // Mana reserves the first 8k:
+    if(mapper().type == MAPPER_MANA)
+        a.alloc_at({ 0xC000, 0x2000 });
+
     // Pre-allocate.
     auto& iota = _rtrom_spans[RTROM_iota][0];
     iota = {};

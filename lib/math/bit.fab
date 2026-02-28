@@ -27,8 +27,8 @@ fn flag_bit_uu(U i) UU
 // 'i' must be in the range [0, 15]
 fn flag_mask_uu(U i) UU
     ct UU[16] table = UU[16](
-        ~U(1<<0), ~U(1<<1), ~U(1<<2), ~U(1<<3), ~U(1<<4), ~U(1<<5), ~U(1<<6), ~U(1<<7),
-        ~U(1<<8), ~U(1<<9), ~U(1<<10), ~U(1<<11), ~U(1<<12), ~U(1<<13), ~U(1<<14), ~U(1<<15))
+        ~UU(1<<0), ~UU(1<<1), ~UU(1<<2), ~UU(1<<3), ~UU(1<<4), ~UU(1<<5), ~UU(1<<6), ~UU(1<<7),
+        ~UU(1<<8), ~UU(1<<9), ~UU(1<<10), ~UU(1<<11), ~UU(1<<12), ~UU(1<<13), ~UU(1<<14), ~UU(1<<15))
     return table[i]
 
 // Returns the number of bits set in the lower 4 bits of 'i':
@@ -47,10 +47,13 @@ fn popcount(U i) U
     return count
 
 // Returns the number of bits set in 'i':
-fn popcount_uu(U i) U
+fn popcount_uu(UU i) U
 : -inline
     U count = 0
-    while i
-        if i >>= 1
+    while i.a
+        if i.a >>= 1
+            count += 1
+    while i.b
+        if i.b >>= 1
             count += 1
     return count

@@ -16,7 +16,7 @@ fn dpcm_addr(AA sample) U
 : +inline
     return U((UU(sample) - $C000) >> 6)
 
-// Returns the address byte of the sample, for use with the $4012 register.
+// Returns the size byte of the sample, for use with the $4013 register.
 fn dpcm_size(UU size) U
 : +inline
     return U((size - 1) >> 4)
@@ -30,10 +30,10 @@ fn dpcm_load(AA sample, UU length, U flags_and_speed)
     {$4011}(64)
 
 // Plays a DPCM sample.
-// 'flags' enables the other APU channels.
-fn dpcm_play(U flags)
+// 'apu_channels' enables the other APU channels.
+fn dpcm_play(U apu_channels)
 : +inline
-    {$4015}(flags | %10000)
+    {$4015}(apu_channels | %10000)
 
 // This version starts the sample 3 times, 
 // It is only useful when using DMC IRQ; it prevents a bug that causes IRQ to be fired immediately.

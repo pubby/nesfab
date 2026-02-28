@@ -4876,11 +4876,16 @@ namespace isel
                 mods_t const* mods = caller->def().mods_of(h->input(1).locator().stmt());
 
                 bool did_reset_nmi = false;
-                bool did_reset_irq = false;
 
-                // Disable interrupts
+                // Disable interrupts temporarily
                 if(global_t::has_irq())
-                    select_step<false>(exact_op<Opt, SEI_IMPLIED>);
+                {
+                    select_step<false>(
+                        chain
+                        < exact_op<Opt, PHP_IMPLIED>
+                        , exact_op<Opt, SEI_IMPLIED>
+                        >);
+                }
 
                 call.mode_group_vars().for_each([&](group_vars_ht gv)
                 {
@@ -4897,17 +4902,6 @@ namespace isel
                             did_reset_nmi = true;
                         }
 
-                        if(!did_reset_irq && global_t::has_irq())
-                        {
-                            if(!fn_t::solo_irq())
-                            {
-                                // Reset the irq handler until we've reset all group vars.
-                                p_arg<0>::set(locator_t::runtime_ram(RTRAM_irq_index));
-                                select_step<false>(load_then_store<Opt, const_<0>, const_<0>, p_arg<0>, false>);
-                            }
-
-                            did_reset_irq = true;
-                        }
                         p_arg<0>::set(locator_t::reset_group_vars(gv));
                         p_arg<1>::set(locator_t::reset_group_vars(gv).with_is(IS_BANK));
 
@@ -4962,12 +4956,16 @@ namespace isel
                 }
 
                 // Set the irq handler to its proper value
-                if(global_t::has_irq() && (did_reset_irq || !same_irq) && !fn_t::solo_irq())
+                if(global_t::has_irq() && !same_irq && !fn_t::solo_irq())
                 {
                     p_arg<0>::set(locator_t::runtime_ram(RTRAM_irq_index));
                     p_arg<1>::set(locator_t::irq_index(call.mode_irq()));
                     select_step<false>(load_then_store<Opt, p_arg<1>, p_arg<1>, p_arg<0>, false>);
                 }
+
+                // Re-enable interrupts
+                if(global_t::has_irq())
+                    select_step<false>(exact_op<Opt, PLP_IMPLIED>);
 
                 // Do the jump:
                 p_arg<0>::set(h->input(0));

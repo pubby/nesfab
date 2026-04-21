@@ -2679,7 +2679,7 @@ foo = 10
 fence
 bar = 20
 ----
-Now if the interurpt sees that `bar` equals `20`, `foo` must equal `10`.
+Now if the interrupt sees that `bar` equals `20`, `foo` must equal `10`.
 
 *Why is `fence` a thing in sequential code?*
 

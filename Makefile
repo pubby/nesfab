@@ -185,7 +185,8 @@ rom_dummy.cpp \
 o_type.cpp \
 o_table.cpp \
 o_chain.cpp \
-convert_wav.cpp
+convert_wav.cpp \
+iota.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

@@ -693,6 +693,7 @@ int main()
         keyword("pop"),
         keyword("subalign"),
         keyword("subsegment"),
+        keyword("iota"),
 
         keyword("true"),
         keyword("false"),
@@ -711,6 +712,12 @@ int main()
         keyword("SYSTEM_PAL"),
         keyword("SYSTEM_DENDY"),
         keyword("SYSTEM_UNKNOWN"),
+
+        // Numbers
+
+        accept("decimal", "number", uor(many1(digit()), cat(many1(digit()), word("."), many1(digit())))),
+        accept("hex", "number", cat(word("$"), uor(many1(hex_digit()), cat(many1(hex_digit()), word("."), many1(hex_digit()))))),
+        accept("binary", "number", cat(word("%"), uor(many1(bin_digit()), cat(many1(bin_digit()), word("."), many1(bin_digit()))))),
 
         // Symbols
 
@@ -759,6 +766,7 @@ int main()
 
         op(10, "asterisk", "*"),
         op(10, "fslash", "/"),
+        op(10, "modulo", "%"),
 
         op(11, "plus", "+"),
         op(11, "minus", "-"),
@@ -795,6 +803,7 @@ int main()
         op(30 | RIGHT_ASSOC, "minus_assign", "-="),
         op(30 | RIGHT_ASSOC, "times_assign", "*="),
         op(30 | RIGHT_ASSOC, "div_assign", "/="),
+        op(30 | RIGHT_ASSOC, "modulo_assign", "%="),
         op(30 | RIGHT_ASSOC, "bitwise_and_assign", "&="),
         //op(30 | RIGHT_ASSOC, "logical_and_assign", "&&="),
         op(30 | RIGHT_ASSOC, "bitwise_or_assign", "|="),
@@ -850,9 +859,6 @@ int main()
         //accept("group_ident", "group identifier", cat(word("@"), kleene(idchar()))),
         accept("ident", "identifier", cat(maybe(underscore()), ident())),
         accept("type_ident", "type identifier", cat(maybe(underscore()), upper(), kleene(idchar()))),
-        accept("decimal", "number", uor(many1(digit()), cat(many1(digit()), word("."), many1(digit())))),
-        accept("hex", "number", cat(word("$"), uor(many1(hex_digit()), cat(many1(hex_digit()), word("."), many1(hex_digit()))))),
-        accept("binary", "number", cat(word("%"), uor(many1(bin_digit()), cat(many1(bin_digit()), word("."), many1(bin_digit()))))),
 
         // dummy:
         accept("int", "int", eof()),

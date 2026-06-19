@@ -32,6 +32,7 @@ struct group_ht;
 void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, std::size_t size, 
                     lpstring_t at, fs::path mapfab_path, mapfab_macros_t const& macros,
                     ident_map_t<global_ht>* private_globals,
-                    ident_map_t<group_ht>* private_groups);
+                    ident_map_t<group_ht>* private_groups,
+                    iota_map_t* private_iota_map);
 
 #endif

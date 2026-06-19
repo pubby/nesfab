@@ -13,6 +13,7 @@
 #include "robin/hash.hpp"
 
 #include "options.hpp"
+#include "iota.hpp"
 
 namespace fs = ::std::filesystem;
 
@@ -50,6 +51,7 @@ void invoke_macro(
     macro_invocation_t invoke,
     ident_map_t<global_ht> private_globals,
     ident_map_t<group_ht> private_groups,
+    iota_map_t* private_iota_map,
     std::string const& append = {});
 
 // Merges newly invoked macros into the file list.
@@ -83,6 +85,7 @@ public:
     std::size_t size() const { return m_size; }
     ident_map_t<global_ht> const* private_globals() const { return m_private_globals; }
     ident_map_t<group_ht> const* private_groups() const { return m_private_groups; }
+    iota_map_t* private_iota_map() const { return m_private_iota_map; }
     macro_invocation_t const* invoke() const { return m_invoke; }
 
     void clear() { m_alloc.reset(); m_size = 0; m_source = nullptr; }
@@ -95,6 +98,7 @@ private:
     std::unique_ptr<char[]> m_alloc;
     ident_map_t<global_ht> const* m_private_globals = nullptr;
     ident_map_t<group_ht> const* m_private_groups = nullptr;
+    iota_map_t* m_private_iota_map = nullptr;
     macro_invocation_t const* m_invoke = nullptr;
 };
 

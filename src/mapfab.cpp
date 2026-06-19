@@ -540,7 +540,8 @@ void mapfab_t::compute_mmt_32()
 void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, std::size_t size, 
                     lpstring_t at, fs::path mapfab_path, mapfab_macros_t const& macros,
                     ident_map_t<global_ht>* base_private_globals,
-                    ident_map_t<group_ht>* base_private_groups)
+                    ident_map_t<group_ht>* base_private_groups,
+                    iota_map_t* private_iota_map)
 {
     using namespace std::literals;
 
@@ -571,7 +572,7 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
         macro_invocation_t m = { macros.chr };
         m.args.push_back(chr.name); // Name
         m.args.push_back(chr.path.string()); // File
-        invoke_macro(std::move(m), std::move(private_globals), std::move(private_groups));
+        invoke_macro(std::move(m), std::move(private_globals), std::move(private_groups), private_iota_map);
     }
 
     // Palettes:
@@ -592,7 +593,7 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
 
         macro_invocation_t m = { macros.palette };
         m.args.push_back(std::to_string(i));
-        invoke_macro(std::move(m), std::move(private_globals), std::move(private_groups));
+        invoke_macro(std::move(m), std::move(private_globals), std::move(private_groups), private_iota_map);
     }
 
     // Metatiles:
@@ -632,7 +633,7 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
         m.args.push_back(mt_set.name);
         m.args.push_back(mt_set.chr_name);
         m.args.push_back(std::to_string(mt_set.palette));
-        invoke_macro(std::move(m), std::move(private_globals), std::move(private_groups));
+        invoke_macro(std::move(m), std::move(private_globals), std::move(private_groups), private_iota_map);
     }
 
     // Levels:
@@ -754,12 +755,13 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
             }
 
             // Named objects
-            for(unsigned j : object_indices)
+            for(unsigned k = 0; k < object_indices.size(); ++k)
             {
+                unsigned const j = object_indices[k];
                 auto const& name = level.objects_name[i][j];
                 if(name.empty())
                     continue;
-                define_ct_int(private_globals.lookup(at, fmt("_%_name_%", oc.first, name)), at, TYPE_INT, j);
+                define_ct_int(private_globals.lookup(at, fmt("_%_name_%", oc.first, name)), at, TYPE_INT, k);
             }
         }
 
@@ -769,7 +771,7 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
         m.args.push_back(std::to_string(level.palette));
         m.args.push_back(level.metatiles_name);
         m.args.push_back(level.macro_name);
-        invoke_macro(std::move(m), std::move(private_globals), std::move(private_groups), std::move(append));
+        invoke_macro(std::move(m), std::move(private_globals), std::move(private_groups), private_iota_map, std::move(append));
     }
 }
 

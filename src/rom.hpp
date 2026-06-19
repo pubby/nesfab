@@ -222,7 +222,7 @@ struct rom_static_t : public rom_alloc_t
     void for_each_bank(Fn const& fn) const
     {
         if(mapper().fixed_16k && mapper().fixed_rom_span().contains(this->span ))
-            fn(mapper().num_banks - 1);
+            fn(mapper().fixed_bank_index());
         else
             for(unsigned bank = 0; bank < mapper().num_banks; ++bank)
                 fn(bank);

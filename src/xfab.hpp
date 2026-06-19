@@ -30,6 +30,7 @@ struct group_ht;
 void convert_xfab(xfab_convert_type_t ct, std::uint8_t const* const begin, std::size_t size, 
                   lpstring_t at, fs::path xfab_path, xfab_macros_t const& macros,
                   ident_map_t<global_ht>* private_globals,
-                  ident_map_t<group_ht>* private_groups);
+                  ident_map_t<group_ht>* private_groups,
+                  iota_map_t* private_iota_map);
 
 #endif

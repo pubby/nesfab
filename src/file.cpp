@@ -25,6 +25,7 @@
 #include "macro.hpp"
 #include "ident_map.hpp"
 #include "decl.hpp"
+#include "eternal_new.hpp"
 
 namespace bc = ::boost::container;
 
@@ -35,6 +36,7 @@ struct macro_result_t
     std::string contents;
     ident_map_t<global_ht> private_globals;
     ident_map_t<group_ht> private_groups;
+    iota_map_t* private_iota_map;
 };
 
 static std::mutex invoke_mutex;
@@ -44,13 +46,14 @@ static bc::deque<macro_result_t> new_macro_results;
 
 void invoke_macro(macro_invocation_t invoke)
 {
-    invoke_macro(std::move(invoke), {}, {});
+    invoke_macro(std::move(invoke), {}, {}, nullptr);
 }
 
 void invoke_macro(
     macro_invocation_t invoke,
     ident_map_t<global_ht> private_globals,
     ident_map_t<group_ht> private_groups,
+    iota_map_t* private_iota_map,
     std::string const& append)
 {
     // Ignore macros with empty names:
@@ -62,6 +65,9 @@ void invoke_macro(
     if(!pair)
         throw std::runtime_error(fmt("Unknown macro: %", invoke.name));
 
+    if(!private_iota_map)
+        private_iota_map = eternal_emplace<iota_map_t>();
+
     unsigned const file_i = (pair - compiler_options().macro_names.begin()) + compiler_options().num_fab;
     std::string str = invoke_macro(file_i, invoke.args);
     str += append;
@@ -72,7 +78,7 @@ void invoke_macro(
         if(invoke_set.insert(invoke).second)
         {
             new_macro_results.push_back({ pair->second.dir / pair->second.file, std::move(invoke), std::move(str), 
-                                          std::move(private_globals), std::move(private_groups) });
+                                          std::move(private_globals), std::move(private_groups), private_iota_map });
         }
     }
 }
@@ -232,6 +238,8 @@ void file_contents_t::reset(unsigned file_i)
 
         m_alloc[m_size-1] = m_alloc[m_size-2] = '\0';
         m_source = m_alloc.get();
+
+        m_private_iota_map = eternal_emplace<iota_map_t>();
     }
     else
     {
@@ -246,6 +254,7 @@ void file_contents_t::reset(unsigned file_i)
         m_source = macro.contents.data();
         m_private_globals = &macro.private_globals;
         m_private_groups = &macro.private_groups;
+        m_private_iota_map = macro.private_iota_map;
         m_invoke = &macro.invoke;
     }
 }

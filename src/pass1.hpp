@@ -27,6 +27,7 @@
 #include "ident_map.hpp"
 #include "mapfab.hpp"
 #include "xfab.hpp"
+#include "iota.hpp"
 
 namespace bc = boost::container;
 
@@ -1293,7 +1294,7 @@ public:
             try 
             { 
                 if(mod_test(tm.mods.get(), MOD_fork_scope))
-                    invoke_macro(std::move(tm.invoke), private_globals, private_groups); 
+                    invoke_macro(std::move(tm.invoke), private_globals, private_groups, file.private_iota_map()); 
                 else
                     invoke_macro(std::move(tm.invoke)); 
             }
@@ -1585,7 +1586,7 @@ public:
                 }
 
                 convert_mapfab(tm.ct, tm.data.data(), tm.data.size(), tm.at, std::move(tm.path), 
-                               std::move(tm.macros), private_globals, private_groups);
+                               std::move(tm.macros), private_globals, private_groups, file.private_iota_map());
             }
             catch(macro_error_t const& e) 
             { 
@@ -1611,7 +1612,7 @@ public:
                 }
 
                 convert_xfab(tm.ct, tm.data.data(), tm.data.size(), tm.at, std::move(tm.path), 
-                               std::move(tm.macros), private_globals, private_groups);
+                             std::move(tm.macros), private_globals, private_groups, file.private_iota_map());
             }
             catch(macro_error_t const& e) 
             { 

@@ -516,6 +516,8 @@ int main(int argc, char** argv)
                     _options.mapper = mapper_t::rainbow(mapper_params);
                 else if(str == "mana"sv)
                     _options.mapper = mapper_t::mana(mapper_params);
+                else if(str == "mana_multicart"sv)
+                    _options.mapper = mapper_t::mana_multicart(mapper_params);
                 else
                     throw std::runtime_error(fmt("Invalid mapper: '%'", compiler_options().raw_mn));
             }

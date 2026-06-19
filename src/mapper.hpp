@@ -22,7 +22,8 @@ MAPPER(GTROM, 111) \
 MAPPER(189, 189) \
 MAPPER(30, 30) \
 MAPPER(RAINBOW, 682) \
-MAPPER(MANA, 511)
+MAPPER(MANA, 500) \
+MAPPER(MANA_MULTICART, 501)
 
 struct mapper_t;
 
@@ -69,6 +70,15 @@ enum mapper_sram_alloc_t : std::uint8_t
     SRAM_ALLOC_REQUEST,
     SRAM_ALLOC_ALWAYS,
 };
+
+constexpr bool fixed_first_bank(mapper_type_t m)
+{
+    switch(m)
+    {
+    case MAPPER_MANA: return true;
+    default: return false;
+    }
+}
 
 struct mapper_params_t
 {
@@ -134,6 +144,7 @@ struct mapper_t
     static mapper_t mmc5(mapper_params_t const& params);
     static mapper_t rainbow(mapper_params_t const& params);
     static mapper_t mana(mapper_params_t const& params);
+    static mapper_t mana_multicart(mapper_params_t const& params);
 
     std::string_view name() const { return mapper_name(type); }
     span_t rom_span() const { return forced_16k ? span_t{ 0xC000, 0x4000 } : span_t{ 0x8000, 0x8000 }; }
@@ -143,11 +154,19 @@ struct mapper_t
     span_t bank_span(unsigned bank) const 
     { 
         if(fixed_16k)
+        {
+            if(fixed_first_bank(type))
+                return bank == 0 ? fixed_rom_span() : switched_rom_span();
             return bank + 1 == num_banks ? fixed_rom_span() : switched_rom_span();
+        }
         return rom_span();
     }
+    unsigned fixed_bank_index() const
+    {
+        return fixed_first_bank(type) ? 0 : num_banks - 1;
+    }
     std::size_t ines_header_size() const { return 16; }
-    bool bankswitches() const { return num_banks > 1; }
+    bool bankswitches() const { return num_16k_banks() > 2; }
 
     unsigned submapper() const;
 };

@@ -379,6 +379,24 @@ mapper_t mapper_t::mana(mapper_params_t const& params)
     };
 }
 
+mapper_t mapper_t::mana_multicart(mapper_params_t const& params)
+{
+    constexpr mapper_type_t mt = MAPPER_MANA_MULTICART;
+    unsigned const b16 = params.num_16k_banks(mt, 16, 32, 2);
+    return 
+    {
+        .type = mt,
+        .mirroring = params.mirroring_none(mt),
+        .num_banks = 1,
+        .num_8k_chr_rom = params.num_8k_chr(mt, 8, 256, 1),
+        .forced_16k = b16 == 1,
+        .bus_conflicts = params.no_conflicts(mt),
+        .sram = params.has_sram(mt, false),
+        .sram_persistent = params.sram_persistent(mt, false),
+        .sector_size = params.default_sector_size(4096),
+    };
+}
+
 unsigned mapper_t::submapper() const
 {
     switch(type)

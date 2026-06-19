@@ -5791,7 +5791,7 @@ ct Int expr_size = sizeof(1 + 2 + 3)
 
 === `len` [[len]]
 
-`len` expressions return the number of array elements.
+`len` expressions return the number of array elements, or the final count for the <<iota>> keyword.
 
 ==== `len` Type [[len_type]]
 
@@ -5822,6 +5822,42 @@ Example:
 ----
 ct Int expr_len = len(U[10](3))
 ----
+
+==== `len iota` [[len_iota_expr]]
+
+Returns the final count of an <<iota>> value.
+
+Syntax:
+----
+len iota.identifier
+----
+- `identifier` is the name of the iota value.
+
+Example:
+----
+ct Int expr_len = len iota.foo
+----
+
+=== `iota` [[abs_expr]]
+
+The `iota` keyword implements parse-time counters. 
+Each time an `iota` expression is parsed, the compiler replaces it with an expression of type `Int` equal to the current count.
+These counters always start at 0, and always increment by 1.
+
+Syntax:
+----
+iota.identifier
+----
+- `identifier` is the name of the counter.
+
+Example:
+----
+UU first = iota.foo  // Value of 0
+UU second = iota.bar // Value of 1
+----
+
+[NOTE]
+See <<len_iota_expr, `len`>> for a way to get the final count.
 
 === `abs`(expression) [[abs_expr]]
 

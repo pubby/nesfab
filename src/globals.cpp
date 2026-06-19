@@ -2737,7 +2737,7 @@ void fn_set_t::count_members()
         m_all_static &= mod_test(fn.mods(), MOD_static);
     }
 
-    m_banked_ptrs = mapper().num_banks > 1 && !m_all_static;
+    m_banked_ptrs = mapper().bankswitches() && !m_all_static;
 }
 
 void fn_set_t::resolve()

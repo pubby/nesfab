@@ -54,5 +54,10 @@ inline fixed_sint_t fixed_div(fixed_sint_t lhs, fixed_sint_t rhs)
     return static_cast<fixed_sint_t>(fixed_uint_t(lhs128 / rhs128));
 }
 
+inline fixed_sint_t fixed_mod(fixed_sint_t lhs, fixed_sint_t rhs)
+{
+    return lhs % rhs;
+}
+
 #endif
 

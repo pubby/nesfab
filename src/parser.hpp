@@ -16,6 +16,7 @@
 #include "pstring.hpp"
 #include "asm_lex_tables.hpp"
 #include "ast.hpp"
+#include "iota.hpp"
 
 struct mods_t;
 

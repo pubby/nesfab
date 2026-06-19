@@ -790,6 +790,20 @@ ast_node_t parser_t<P>::parse_expr_atom(int starting_indent, int open_parens)
             else
                 return { .token = { .type = TOK_int, .pstring = t.pstring, .value = size << fixed_t::shift }};
         }
+        else if(token.type == TOK_iota && expr_token == TOK_len_expr)
+        {
+            parse_token();
+            parse_token(TOK_period);
+            pstring_t ident = token.pstring;
+            parse_token(TOK_ident);
+            std::string string = ident.string(source());
+            iota_map_t& map = (string.size() && string[0] == '_') ? *file.private_iota_map() : iota_map;
+            std::lock_guard<std::mutex> lock(map.mutex);
+            unsigned& v = map.map[ident.string(source())];
+            ast_node_t ast = { .token = token_t{ TOK_iota, ident }};
+            ast.token.set_ptr(&v);
+            return ast;
+        }
         else
         {
             int const paren_indent = indent;
@@ -883,6 +897,22 @@ retry:
         {
             ast_node_t ast = { .token = token };
             parse_token();
+            return ast;
+        }
+
+    case TOK_iota:
+        {
+            pstring_t begin = token.pstring;
+            parse_token();
+            parse_token(TOK_period);
+            pstring_t ident = token.pstring;
+            parse_token(TOK_ident);
+            std::string string = ident.string(source());
+            iota_map_t& map = (string.size() && string[0] == '_') ? *file.private_iota_map() : iota_map;
+            std::lock_guard<std::mutex> lock(map.mutex);
+            auto& v = map.map[ident.string(source())];
+            ast_node_t ast = { .token = token_t{ TOK_int, concat(begin, ident), v << fixed_t::shift }};
+            v += 1;
             return ast;
         }
 

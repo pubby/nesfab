@@ -2286,6 +2286,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         }
         break;
 
+    case TOK_iota:
+        common_value.set(*ast.token.ptr<unsigned>(), TYPE_INT);
+        goto push_int;
+
     case TOK_return:
         {
             if(is_link(D)) // TODO: perhaps this should move to 'to_rval'.
@@ -4062,6 +4066,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             unsigned const size = type.size();
                             assert(num_m == num_members(type.elem_type()));
 
+                            if(size == 0)
+                                compiler_error(args[0].pstring, fmt("Type % has size 0.\n", type));
+
                             if(!is_check(D))
                             {
                                 passert(num_m == fill_with.rval().size(), num_m, fill_with.rval().size());
@@ -4088,10 +4095,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         }
                     }
 
+
                     if(type.unsized())
                         type.set_array_length(num_args);
                     else 
                         check_argn(type.size());
+
+                    if(type.size_of() == 0)
+                        compiler_error(args[0].pstring, fmt("Type % has size 0.\n", type));
 
                     for(unsigned i = 0; i < num_args; ++i)
                         args[i] = throwing_cast<D>(std::move(args[i]), type.elem_type(), implicit);
@@ -4681,6 +4692,23 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
     case TOK_div_assign:
         return infix(&eval_t::do_assign_arith<div_p>, false, true);
+
+    case TOK_modulo:
+        struct mod_p : do_wrapper_t<D>
+        {
+            static auto lt() { return TOK_modulo; }
+            static S interpret(S lhs, S rhs, pstring_t at) 
+            { 
+                if(!rhs)
+                    compiler_error(at, "Modulo by zero.");
+                return fixed_mod(lhs, rhs); 
+            }
+            static ssa_op_t op() { return SSA_null; }
+        };
+        return infix(&eval_t::do_arith<mod_p>);
+
+    case TOK_modulo_assign:
+        return infix(&eval_t::do_assign_arith<mod_p>, false, true);
 
     case TOK_plus:
         return infix(&eval_t::do_add<plus_p>);
@@ -8413,14 +8441,17 @@ ssa_value_t eval_t::from_variant(ct_variant_t const& v, type_t type)
         unsigned const length = type.array_length();
         passert(length, type);
 
-        // Determine if the array is a fill.
-        ssa_value_t const first = (*array)[0];
-        for(unsigned i = 1; i < length; ++i)
-            if((*array)[i] != first)
-                goto not_fill;
+        if(length) // Safety
+        {
+            // Determine if the array is a fill.
+            ssa_value_t const first = (*array)[0];
+            for(unsigned i = 1; i < length; ++i)
+                if((*array)[i] != first)
+                    goto not_fill;
 
-        // Fill:
-        return builder.cfg->emplace_ssa(SSA_fill_array, type, first);
+            // Fill:
+            return builder.cfg->emplace_ssa(SSA_fill_array, type, first);
+        }
 
     not_fill:
         ssa_ht h = builder.cfg->emplace_ssa(SSA_init_array, type);

@@ -1681,7 +1681,7 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified, bool slopp
                     init, increment, iterations, end,
                     d.simple_condition, d.simple_condition_iv_i))
                 {
-                    init = 0;
+                    init = iterations << fixed_t::shift;
                     increment = -1ull << fixed_t::shift;
                     updated = this_iter_updated = true;
                 }
